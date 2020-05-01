@@ -1,7 +1,6 @@
 package mph
 
 import (
-	"errors"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -17,8 +16,8 @@ type chdHasher struct {
 
 type bucket struct {
 	index  uint64
-	keys   [][]byte
-	values [][]byte
+	keys   []uint64
+	values []uint64
 }
 
 func (b *bucket) String() string {
@@ -38,8 +37,8 @@ func (b bucketVector) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
 
 // Build a new CDH MPH.
 type CHDBuilder struct {
-	keys   [][]byte
-	values [][]byte
+	keys   []uint64
+	values []uint64
 }
 
 // Create a new CHD hash table builder.
@@ -48,14 +47,14 @@ func Builder() *CHDBuilder {
 }
 
 // Add a key and value to the hash table.
-func (b *CHDBuilder) Add(key []byte, value []byte) {
+func (b *CHDBuilder) Add(key, value uint64) {
 	b.keys = append(b.keys, key)
 	b.values = append(b.values, value)
 }
 
 // Try to find a hash function that does not cause collisions with table, when
 // applied to the keys in the bucket.
-func tryHash(hasher *chdHasher, seen map[uint64]bool, keys [][]byte, values [][]byte, indices []uint16, bucket *bucket, ri uint16, r uint64) bool {
+func tryHash(hasher *chdHasher, seen map[uint64]bool, keys, values []uint64, indices []uint16, bucket *bucket, ri uint16, r uint64) bool {
 	// Track duplicates within this bucket.
 	duplicate := make(map[uint64]bool)
 	// Make hashes for each entry in the bucket.
@@ -95,8 +94,8 @@ func (b *CHDBuilder) Build() (*CHD, error) {
 		m = 1
 	}
 
-	keys := make([][]byte, n)
-	values := make([][]byte, n)
+	keys := make([]uint64, n)
+	values := make([]uint64, n)
 	hasher := newCHDHasher(n, m)
 	buckets := make(bucketVector, m)
 	indices := make([]uint16, m)
@@ -105,18 +104,17 @@ func (b *CHDBuilder) Build() (*CHD, error) {
 		indices[i] = ^uint16(0)
 	}
 	// Have we seen a hash before?
-	seen := make(map[uint64]bool)
+	seen := make(map[uint64]bool, n)
 	// Used to ensure there are no duplicate keys.
-	duplicates := make(map[string]bool)
+	duplicates := make(map[uint64]struct{}, n)
 
 	for i := range b.keys {
 		key := b.keys[i]
 		value := b.values[i]
-		k := string(key)
-		if duplicates[k] {
-			return nil, errors.New("duplicate key " + k)
+		if _, ok := duplicates[key]; ok {
+			return nil, fmt.Errorf("duplicate key %d", key)
 		}
-		duplicates[k] = true
+		duplicates[key] = struct{}{}
 		oh := hasher.HashIndexFromKey(key)
 
 		buckets[oh].index = oh
@@ -184,12 +182,12 @@ func (c *chdHasher) random() uint64 {
 }
 
 // Hash index from key.
-func (h *chdHasher) HashIndexFromKey(b []byte) uint64 {
+func (h *chdHasher) HashIndexFromKey(b uint64) uint64 {
 	return (hasher(b) ^ h.r[0]) % h.buckets
 }
 
 // Table hash from random value and key. Generate() returns these random values.
-func (h *chdHasher) Table(r uint64, b []byte) uint64 {
+func (h *chdHasher) Table(r uint64, b uint64) uint64 {
 	return (hasher(b) ^ h.r[0] ^ r) % h.size
 }
 
